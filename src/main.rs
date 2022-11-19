@@ -39,6 +39,8 @@ struct Client {
     last_billed_date: String,
 }
 
+type Summary = HashMap<String, i64>;
+
 struct BillReportDay {
     date: String,
     actual_minutes: i64,
@@ -78,8 +80,8 @@ fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn build_summary(report_details: ReportDetails) -> HashMap<String, i64> {
-    let mut summary: HashMap<String, i64> = HashMap::new();
+fn build_summary(report_details: ReportDetails) -> Summary {
+    let mut summary: Summary = Summary::new();
 
     for entry in report_details.data {
         let start = DateTime::parse_from_rfc3339(&entry.start).unwrap();
@@ -93,7 +95,7 @@ fn build_summary(report_details: ReportDetails) -> HashMap<String, i64> {
     summary
 }
 
-fn build_bill_report(summary: HashMap<String, i64>, client: &Client) -> BillReport {
+fn build_bill_report(summary: Summary, client: &Client) -> BillReport {
     let mut bill_report = BillReport {
         days: Vec::new(),
     };
