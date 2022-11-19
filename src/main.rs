@@ -63,10 +63,15 @@ fn main() -> Result<(), anyhow::Error> {
     req_query.insert("client_ids", &client.id);
     req_query.insert("since", &client.last_billed_date);
 
-    let res = client::make_request(Method::GET, url, req_query, &config).unwrap();
-    let report_details = serde_json::from_str::<ReportDetails>(&res).unwrap();
-    let summary = build_summary(report_details);
-    let bill_report = build_bill_report(summary, &client);
+    //let res = client::make_request(Method::GET, url, req_query, &config).unwrap();
+    //let report_details = serde_json::from_str::<ReportDetails>(&res).unwrap();
+    //let summary = build_summary(report_details);
+    //let bill_report = build_bill_report(summary, &client);
+
+    let bill_report = client::make_request(Method::GET, url, req_query, &config)
+        .and_then(|res| serde_json::from_str::<ReportDetails>(&res).map_err(|e| anyhow::anyhow!(e)))
+        .map(build_summary)
+        .map(|summary| build_bill_report(summary, &client))?;
 
     let mut total = 0.0;
 
