@@ -1,33 +1,25 @@
 use std::collections::HashMap;
 use std::default::Default;
+use anyhow::Result;
 use reqwest::Method;
 use chrono::DateTime;
 use serde::{Serialize, Deserialize};
 
 mod client;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct Config {
     workspace_id: String,
     clients: HashMap<String, Client>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            workspace_id: String::new(),
-            clients: HashMap::new(),
-        }
-    }
-}
-
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct TimeEntry {
     start: String,
     end: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Clone)]
 struct ReportDetails {
     data: Vec<TimeEntry>,
 }
@@ -52,9 +44,9 @@ struct BillReport {
     days: Vec<BillReportDay>,
 }
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> Result<()> {
     let config: Config = confy::load_path("./config.toml")?;
-    let client_name = std::env::args().nth(1).ok_or(anyhow::anyhow!("No client name provided"))?;
+    let client_name = std::env::args().nth(1).ok_or_else(|| anyhow::anyhow!("No client name provided"))?;
 
     let client = &config.clients[&client_name];
     let url = "https://api.track.toggl.com/reports/api/v2/details";
@@ -65,8 +57,8 @@ fn main() -> Result<(), anyhow::Error> {
 
     let bill_report = client::make_request(Method::GET, url, req_query, &config)
         .and_then(|res| serde_json::from_str::<ReportDetails>(&res).map_err(|e| anyhow::anyhow!(e)))
-        .map(build_summary)
-        .map(|summary| build_bill_report(summary, &client))?;
+        .and_then(|r| build_summary(&r))
+        .map(|summary| build_bill_report(summary, client))?;
 
     let mut total = 0.0;
 
@@ -80,19 +72,19 @@ fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn build_summary(report_details: ReportDetails) -> Summary {
+fn build_summary(report_details: &ReportDetails) -> Result<Summary> {
     let mut summary: Summary = Summary::new();
 
-    for entry in report_details.data {
-        let start = DateTime::parse_from_rfc3339(&entry.start).unwrap();
-        let end = DateTime::parse_from_rfc3339(&entry.end).unwrap();
+    for entry in &report_details.data {
+        let start = DateTime::parse_from_rfc3339(&entry.start)?;
+        let end = DateTime::parse_from_rfc3339(&entry.end)?;
         let diff = end - start;
         let day = start.format("%Y-%m-%d").to_string();
 
-        summary.entry(day).and_modify(|x| *x += diff.num_minutes()).or_insert(diff.num_minutes());
+        summary.entry(day).and_modify(|x| *x += diff.num_minutes()).or_insert_with(|| diff.num_minutes());
     }
 
-    summary
+    Ok(summary)
 }
 
 fn build_bill_report(summary: Summary, client: &Client) -> BillReport {
@@ -107,7 +99,7 @@ fn build_bill_report(summary: Summary, client: &Client) -> BillReport {
             _ => minutes
         };
 
-        let amount = billable_minutes as f64 * &client.hourly_rate / 60.0;
+        let amount = billable_minutes as f64 * client.hourly_rate / 60.0;
         bill_report.days.push(BillReportDay {
             date: day,
             actual_minutes: minutes,
@@ -119,4 +111,41 @@ fn build_bill_report(summary: Summary, client: &Client) -> BillReport {
     bill_report.days.sort_by_key(|x| x.date.clone());
 
     bill_report
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_build_summary() {
+        let report_details = ReportDetails {
+            data: vec![
+                TimeEntry { start: "2022-01-01T00:00:00+00:00".to_string(), end: "2022-01-01T00:10:00+00:00".to_string() },
+                TimeEntry { start: "2022-01-01T10:00:00+00:00".to_string(), end: "2022-01-01T11:10:00+00:00".to_string() },
+                TimeEntry { start: "2022-02-01T15:00:00+00:00".to_string(), end: "2022-02-01T15:52:00+00:00".to_string() },
+            ]
+        };
+        let mut summary = Summary::new();
+        summary.insert("2022-01-01".to_string(), 80);
+        summary.insert("2022-02-01".to_string(), 52);
+
+        assert_eq!(summary, build_summary(&report_details).unwrap());
+    }
+
+    #[test]
+    fn test_build_summary_invalid_date() {
+        let report_details = ReportDetails {
+            data: vec![
+                TimeEntry { start: "invalid date".to_string(), end: "2022-01-01T00:10:00+00:00".to_string() },
+            ]
+        };
+        let mut summary = Summary::new();
+        summary.insert("2022-01-01".to_string(), 80);
+        summary.insert("2022-02-01".to_string(), 52);
+
+        assert!(build_summary(&report_details).is_err());
+        assert_eq!("input contains invalid characters".to_string(), build_summary(&report_details).unwrap_err().to_string());
+    }
 }
