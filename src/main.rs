@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::default::Default;
-use anyhow::Result;
+use anyhow::{Result, Context};
 use reqwest::Method;
 use chrono::DateTime;
 use serde::{Serialize, Deserialize};
@@ -33,6 +33,7 @@ struct Client {
 
 type Summary = HashMap<String, i64>;
 
+#[derive(Debug, PartialEq)]
 struct BillReportDay {
     date: String,
     actual_minutes: i64,
@@ -40,6 +41,7 @@ struct BillReportDay {
     billed_amount: f64,
 }
 
+#[derive(Debug, PartialEq)]
 struct BillReport {
     days: Vec<BillReportDay>,
 }
@@ -76,8 +78,8 @@ fn build_summary(report_details: &ReportDetails) -> Result<Summary> {
     let mut summary: Summary = Summary::new();
 
     for entry in &report_details.data {
-        let start = DateTime::parse_from_rfc3339(&entry.start)?;
-        let end = DateTime::parse_from_rfc3339(&entry.end)?;
+        let start = DateTime::parse_from_rfc3339(&entry.start).with_context(|| format!("Failed to parse start date: {}", entry.start))?;
+        let end = DateTime::parse_from_rfc3339(&entry.end).with_context(|| format!("Failed to parse end date: {}", entry.end))?;
         let diff = end - start;
         let day = start.format("%Y-%m-%d").to_string();
 
@@ -138,14 +140,59 @@ mod tests {
     fn test_build_summary_invalid_date() {
         let report_details = ReportDetails {
             data: vec![
-                TimeEntry { start: "invalid date".to_string(), end: "2022-01-01T00:10:00+00:00".to_string() },
+                TimeEntry { start: "this string is not a date".to_string(), end: "2022-01-01T00:10:00+00:00".to_string() },
             ]
         };
-        let mut summary = Summary::new();
-        summary.insert("2022-01-01".to_string(), 80);
-        summary.insert("2022-02-01".to_string(), 52);
 
         assert!(build_summary(&report_details).is_err());
-        assert_eq!("input contains invalid characters".to_string(), build_summary(&report_details).unwrap_err().to_string());
+        assert_eq!("Failed to parse start date: this string is not a date".to_string(), build_summary(&report_details).unwrap_err().to_string());
+
+        let report_details = ReportDetails {
+            data: vec![
+                TimeEntry { start: "2022-01-01T00:10:00+00:00".to_string(), end: "this string is not a date".to_string() },
+            ]
+        };
+
+        assert!(build_summary(&report_details).is_err());
+        assert_eq!("Failed to parse end date: this string is not a date".to_string(), build_summary(&report_details).unwrap_err().to_string());
+    }
+
+    #[test]
+    fn build_bill_report_test() {
+        let mut summary = Summary::new();
+        summary.insert("2022-01-01".to_string(), 5);
+        summary.insert("2022-01-02".to_string(), 25);
+        summary.insert("2022-01-03".to_string(), 80);
+
+        let expected_bill_report = BillReport {
+            days: vec![
+                BillReportDay {
+                    date: "2022-01-01".to_string(),
+                    actual_minutes: 5,
+                    billed_minutes: 0,
+                    billed_amount: 0.0,
+                },
+                BillReportDay {
+                    date: "2022-01-02".to_string(),
+                    actual_minutes: 25,
+                    billed_minutes: 60,
+                    billed_amount: 30.0,
+                },
+                BillReportDay {
+                    date: "2022-01-03".to_string(),
+                    actual_minutes: 80,
+                    billed_minutes: 80,
+                    billed_amount: 80.0 / 60.0 * 30.0,
+                },
+            ]
+        };
+
+        let client = Client {
+            id: "123".to_string(),
+            hourly_rate: 30.0,
+            last_billed_date: "2022-01-01".to_string(),
+        };
+
+        assert_eq!(expected_bill_report, build_bill_report(summary, &client));
     }
 }
