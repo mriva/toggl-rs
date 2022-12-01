@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::default::Default;
 use anyhow::{Result, Context};
-use reqwest::Method;
 use chrono::DateTime;
 use serde::{Serialize, Deserialize};
 
@@ -20,7 +19,7 @@ struct TimeEntry {
 }
 
 #[derive(Debug, serde::Deserialize, Clone)]
-struct ReportDetails {
+pub struct ReportDetails {
     data: Vec<TimeEntry>,
 }
 
@@ -49,29 +48,20 @@ struct BillReport {
 fn main() -> Result<()> {
     let config: Config = confy::load_path("./config.toml")?;
     let client_name = std::env::args().nth(1).ok_or_else(|| anyhow::anyhow!("No client name provided"))?;
-
     let client = &config.clients[&client_name];
-    let url = "https://api.track.toggl.com/reports/api/v2/details";
 
-    let mut req_query: HashMap<&str, &str> = HashMap::new();
-    req_query.insert("client_ids", &client.id);
-    req_query.insert("since", &client.last_billed_date);
-
-    let bill_report = client::make_request(Method::GET, url, req_query, &config)
-        .and_then(|res| serde_json::from_str::<ReportDetails>(&res).map_err(|e| anyhow::anyhow!(e)))
+    let bill_report = client::get_billable_report(&config, &client_name)
         .and_then(|r| build_summary(&r))
         .map(|summary| build_bill_report(summary, client))?;
 
-    let mut total = 0.0;
-
-    for day in bill_report.days {
-        total += day.billed_amount;
-        println!("{} - {} - {} - {}", day.date, day.actual_minutes, day.billed_minutes, day.billed_amount);
-    }
-
-    println!("Total: {}", total);
+    let total = calculate_total(&bill_report);
+    println!("Total: € {}", total);
 
     Ok(())
+}
+
+fn calculate_total(bill_report: &BillReport) -> f64 {
+    bill_report.days.iter().fold(0.0, |acc, day| acc + day.billed_amount)
 }
 
 fn build_summary(report_details: &ReportDetails) -> Result<Summary> {
