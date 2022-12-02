@@ -9,6 +9,7 @@ mod client;
 #[derive(Serialize, Deserialize, Default)]
 pub struct Config {
     workspace_id: String,
+    start_of_time: String,
     clients: HashMap<String, Client>,
 }
 
@@ -38,6 +39,7 @@ struct BillReportDay {
     actual_minutes: i64,
     billed_minutes: i64,
     billed_amount: f64,
+    billed: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -55,13 +57,23 @@ fn main() -> Result<()> {
         .map(|summary| build_bill_report(summary, client))?;
 
     let total = calculate_total(&bill_report);
+
+    for day in bill_report.days {
+        println!("{:?}", day);
+    }
     println!("Total: € {}", total);
 
     Ok(())
 }
 
 fn calculate_total(bill_report: &BillReport) -> f64 {
-    bill_report.days.iter().fold(0.0, |acc, day| acc + day.billed_amount)
+    bill_report.days.iter().fold(0.0, |acc, day| {
+        if day.billed {
+            acc
+        } else {
+            acc + day.billed_amount
+        }
+    })
 }
 
 fn build_summary(report_details: &ReportDetails) -> Result<Summary> {
@@ -85,24 +97,33 @@ fn build_bill_report(summary: Summary, client: &Client) -> BillReport {
     };
     
     for (day, minutes) in summary {
-        let billable_minutes: i64 = match minutes {
-            0 ..= 10 => 0,
-            11 ..= 60 => 60,
-            _ => minutes
-        };
+        let billable_minutes: i64 = calculate_billable_minutes(minutes);
 
-        let amount = billable_minutes as f64 * client.hourly_rate / 60.0;
+        let mut billed = false;
+        if day <= client.last_billed_date {
+            billed = true;
+        }
+
         bill_report.days.push(BillReportDay {
             date: day,
             actual_minutes: minutes,
             billed_minutes: billable_minutes,
-            billed_amount: amount,
+            billed_amount: billable_minutes as f64 * client.hourly_rate / 60.0,
+            billed,
         });
     }
 
     bill_report.days.sort_by_key(|x| x.date.clone());
 
     bill_report
+}
+
+fn calculate_billable_minutes(minutes: i64) -> i64 {
+    match minutes {
+        0 ..= 10 => 0,
+        11 ..= 60 => 60,
+        _ => minutes
+    }
 }
 
 #[cfg(test)]
