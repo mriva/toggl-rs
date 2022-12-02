@@ -182,18 +182,21 @@ mod tests {
                     actual_minutes: 5,
                     billed_minutes: 0,
                     billed_amount: 0.0,
+                    billed: true,
                 },
                 BillReportDay {
                     date: "2022-01-02".to_string(),
                     actual_minutes: 25,
                     billed_minutes: 60,
                     billed_amount: 30.0,
+                    billed: false,
                 },
                 BillReportDay {
                     date: "2022-01-03".to_string(),
                     actual_minutes: 80,
                     billed_minutes: 80,
                     billed_amount: 80.0 / 60.0 * 30.0,
+                    billed: false,
                 },
             ]
         };
