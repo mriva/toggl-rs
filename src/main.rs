@@ -24,6 +24,12 @@ pub struct ReportDetails {
     data: Vec<TimeEntry>,
 }
 
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct DetailsResponse {
+    data: Vec<TimeEntry>,
+    total_count: u32,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct Client {
     id: String,
@@ -122,6 +128,8 @@ fn calculate_billable_minutes(minutes: i64) -> i64 {
     match minutes {
         0 ..= 10 => 0,
         11 ..= 60 => 60,
+        61 ..= 70 => minutes,
+        71 ..= 120 => 120,
         _ => minutes
     }
 }
