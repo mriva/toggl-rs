@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use chrono::{Months, NaiveDate, Datelike};
-use reqwest::{ blocking::Client, Method };
-use anyhow::Result;
 use crate::{DetailsResponse, TimeEntry};
+use anyhow::Result;
+use chrono::Datelike;
+use reqwest::{blocking::Client, Method};
 
-use super::{ Config, ReportDetails };
+use super::{Config, ReportDetails};
 
 struct ReportYear {
     current: usize,
@@ -35,9 +35,7 @@ impl Iterator for ReportYear {
 }
 
 pub fn get_billable_report(config: &Config, client_name: &str) -> Result<ReportDetails> {
-    let mut full_report = ReportDetails {
-        data: Vec::new(),
-    };
+    let mut full_report = ReportDetails { data: Vec::new() };
 
     for (since, until) in ReportYear::new(2022, None) {
         let mut year_report = get_year_data(config, client_name, since, until)?;
@@ -47,7 +45,12 @@ pub fn get_billable_report(config: &Config, client_name: &str) -> Result<ReportD
     Ok(full_report)
 }
 
-fn get_year_data(config: &Config, client_name: &str, since: String, until: String) -> Result<Vec<crate::TimeEntry>> {
+fn get_year_data(
+    config: &Config,
+    client_name: &str,
+    since: String,
+    until: String,
+) -> Result<Vec<crate::TimeEntry>> {
     let client = &config.clients[client_name];
     let url = "https://api.track.toggl.com/reports/api/v2/details";
 
@@ -58,8 +61,9 @@ fn get_year_data(config: &Config, client_name: &str, since: String, until: Strin
 
     let mut entries: Vec<TimeEntry> = Vec::new();
 
-    let mut response = make_request(Method::GET, url, req_query, config)
-        .and_then(|r| serde_json::from_str::<DetailsResponse>(&r).map_err(|e| anyhow::anyhow!(e)))?;
+    let mut response = make_request(Method::GET, url, req_query, config).and_then(|r| {
+        serde_json::from_str::<DetailsResponse>(&r).map_err(|e| anyhow::anyhow!(e))
+    })?;
 
     entries.append(&mut response.data);
 
@@ -79,19 +83,28 @@ fn get_year_data(config: &Config, client_name: &str, since: String, until: Strin
             req_query.insert("until", &until);
             req_query.insert("page", &query_page);
 
-            let mut response = make_request(Method::GET, url, req_query, config)
-                .and_then(|r| serde_json::from_str::<DetailsResponse>(&r).map_err(|e| anyhow::anyhow!(e)))?;
+            let mut response = make_request(Method::GET, url, req_query, config).and_then(|r| {
+                serde_json::from_str::<DetailsResponse>(&r).map_err(|e| anyhow::anyhow!(e))
+            })?;
 
             entries.append(&mut response.data);
             page += 1;
         }
     }
 
-    println!("Got {} entries for {} - {}", response.total_count, since, until);
+    println!(
+        "Got {} entries for {} - {}",
+        response.total_count, since, until
+    );
     Ok(entries)
 }
 
-fn make_request(method: Method, url: &str, query_params: HashMap<&str, &str>, config: &Config) -> Result<String> {
+fn make_request(
+    method: Method,
+    url: &str,
+    query_params: HashMap<&str, &str>,
+    config: &Config,
+) -> Result<String> {
     let client = Client::new();
 
     let token = base64::encode(format!("{}:api_token", std::env::var("TOGGLE_API_TOKEN")?));
@@ -99,8 +112,9 @@ fn make_request(method: Method, url: &str, query_params: HashMap<&str, &str>, co
     let mut base_params = HashMap::new();
     base_params.insert("user_agent", "toggl-rs");
     base_params.insert("workspace_id", &config.workspace_id);
-    
-    client.request(method, url)
+
+    client
+        .request(method, url)
         .header("Authorization", format!("Basic {}", token))
         .header("Content-Type", "application/json")
         .query(&base_params)
@@ -118,11 +132,26 @@ mod tests {
     fn test_year_iterator() {
         let mut report_year = ReportYear::new(2018, Some(2022));
 
-        assert_eq!(report_year.next(), Some(("2018-01-01".to_string(), "2018-12-31".to_string())));
-        assert_eq!(report_year.next(), Some(("2019-01-01".to_string(), "2019-12-31".to_string())));
-        assert_eq!(report_year.next(), Some(("2020-01-01".to_string(), "2020-12-31".to_string())));
-        assert_eq!(report_year.next(), Some(("2021-01-01".to_string(), "2021-12-31".to_string())));
-        assert_eq!(report_year.next(), Some(("2022-01-01".to_string(), "2022-12-31".to_string())));
+        assert_eq!(
+            report_year.next(),
+            Some(("2018-01-01".to_string(), "2018-12-31".to_string()))
+        );
+        assert_eq!(
+            report_year.next(),
+            Some(("2019-01-01".to_string(), "2019-12-31".to_string()))
+        );
+        assert_eq!(
+            report_year.next(),
+            Some(("2020-01-01".to_string(), "2020-12-31".to_string()))
+        );
+        assert_eq!(
+            report_year.next(),
+            Some(("2021-01-01".to_string(), "2021-12-31".to_string()))
+        );
+        assert_eq!(
+            report_year.next(),
+            Some(("2022-01-01".to_string(), "2022-12-31".to_string()))
+        );
         assert_eq!(report_year.next(), None);
     }
 
@@ -132,7 +161,10 @@ mod tests {
 
         let current_year = chrono::Local::now().year() as usize;
         for year in 2018..=current_year {
-            assert_eq!(report_year.next(), Some((format!("{}-01-01", year), format!("{}-12-31", year))));
+            assert_eq!(
+                report_year.next(),
+                Some((format!("{}-01-01", year), format!("{}-12-31", year)))
+            );
         }
 
         assert_eq!(None, report_year.next());
